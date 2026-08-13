@@ -1,5 +1,5 @@
 import { claimJob } from "./claimJob.js";
-import { completeJob } from "./completeJob.js";
+import { runJob } from "./runJob.js";
 import { pool } from "../db/pool.js";
 
 const workerId = process.argv[2] ?? `worker-${process.pid}`;
@@ -18,8 +18,8 @@ async function run() {
     const job = await claimJob(workerId);
     if (job) {
       idleSince = null;
-      await completeJob(job);
-      console.log(`${workerId} completed job ${job.id}`);
+      const outcome = await runJob(job, workerId);
+      console.log(`${workerId} job ${job.id} (${job.node_id}) -> ${outcome}`);
       continue;
     }
     if (idleExitMs !== null) {

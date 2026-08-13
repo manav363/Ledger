@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "migrate": "tsx src/db/migrate.ts",
-    "loadtest:claiming": "tsx --test src/queue/__loadtest__/concurrentClaim.ts"
+    "loadtest:claiming": "tsx --test src/queue/__loadtest__/concurrentClaim.ts",
+    "test:http": "tsx --test src/queue/__tests__/httpExecution.ts"
   },
   "dependencies": {
     "pg": "^8.13.1"

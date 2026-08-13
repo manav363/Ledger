@@ -25,8 +25,15 @@ function runWorker(workerId: string): Promise<void> {
 }
 
 test("5 concurrent worker processes claim 500 jobs with zero double-claims", async () => {
+  // noop nodes so the workers run the real execution path with no side effects.
+  const nodes = Array.from({ length: JOB_COUNT }, (_, i) => ({
+    id: `node-${i}`,
+    type: "noop",
+    config: {},
+  }));
   const { rows: [workflow] } = await pool.query<{ id: string }>(
-    `INSERT INTO workflows (name, definition) VALUES ('loadtest', '{}') RETURNING id`,
+    `INSERT INTO workflows (name, definition) VALUES ('loadtest', $1) RETURNING id`,
+    [JSON.stringify({ nodes, edges: [] })],
   );
   const { rows: [run] } = await pool.query<{ id: string }>(
     `INSERT INTO runs (workflow_id) VALUES ($1) RETURNING id`,

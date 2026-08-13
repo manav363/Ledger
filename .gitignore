@@ -3,3 +3,4 @@ dist/
 .env
 *.log
 .claude-flow/
+.DS_Store
