@@ -3,6 +3,7 @@ import type { Job } from "./claimJob.js";
 import { completeJob } from "./completeJob.js";
 import { failJob } from "./failJob.js";
 import { loadNode } from "./loadNode.js";
+import { gatherInputs } from "../dag/graph.js";
 import { executeNode } from "../nodes/registry.js";
 
 export type JobOutcome = "done" | "retry" | "failed";
@@ -19,7 +20,8 @@ export async function runJob(job: Job, workerId: string): Promise<JobOutcome> {
 
   try {
     const node = await loadNode(job.run_id, job.node_id);
-    const output = await executeNode(node, { runId: job.run_id, attempt: job.attempts });
+    const input = await gatherInputs(pool, job.run_id, job.node_id);
+    const output = await executeNode(node, { runId: job.run_id, attempt: job.attempts, input });
     await completeJob(job, output);
     return "done";
   } catch (err) {

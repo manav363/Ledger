@@ -1,5 +1,6 @@
 import { pool } from "../db/pool.js";
 import type { Job } from "./claimJob.js";
+import { refreshRunStatus } from "./runStatus.js";
 
 const MAX_ATTEMPTS = 3;
 
@@ -18,6 +19,7 @@ export async function failJob(job: Job, error: Error): Promise<boolean> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [job.run_id]);
     await client.query(
       `INSERT INTO run_events (run_id, node_id, event_type, payload)
        VALUES ($1, $2, $3, $4)`,
@@ -40,6 +42,7 @@ export async function failJob(job: Job, error: Error): Promise<boolean> {
     } else {
       await client.query(`UPDATE jobs SET status = 'failed' WHERE id = $1`, [job.id]);
     }
+    await refreshRunStatus(client, job.run_id);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
