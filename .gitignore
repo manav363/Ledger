@@ -3,4 +3,5 @@ dist/
 .env
 *.log
 .claude-flow/
+.claude/settings.local.json
 .DS_Store

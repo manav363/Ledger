@@ -18,6 +18,8 @@ const handlers: Record<string, NodeHandler> = {
   sleep: sleepNode,
 };
 
+export const nodeTypes = Object.keys(handlers);
+
 export async function executeNode(node: NodeDefinition, ctx: NodeContext): Promise<unknown> {
   const handler = handlers[node.type];
   if (!handler) throw new Error(`no handler registered for node type '${node.type}'`);
