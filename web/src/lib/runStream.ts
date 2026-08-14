@@ -5,8 +5,14 @@ type Message =
   | { kind: "event"; run_id: string; node_id: string; event_type: string }
   | { kind: "status"; run_id: string; status: string };
 
+export interface LogEntry {
+  node_id: string;
+  event_type: string;
+  created_at: string;
+}
+
 interface StreamHandlers {
-  onSnapshot: (nodeStates: Record<string, string>, status: string) => void;
+  onSnapshot: (nodeStates: Record<string, string>, status: string, events: LogEntry[]) => void;
   onEvent: (nodeId: string, eventType: string) => void;
   onStatus: (status: string) => void;
 }
@@ -24,7 +30,7 @@ export function openRunStream(runId: string, handlers: StreamHandlers): () => vo
     } catch {
       return;
     }
-    if (msg.kind === "snapshot") handlers.onSnapshot(msg.node_states ?? {}, msg.status ?? "running");
+    if (msg.kind === "snapshot") handlers.onSnapshot(msg.node_states ?? {}, msg.status ?? "running", msg.events ?? []);
     else if (msg.kind === "event") handlers.onEvent(msg.node_id, msg.event_type);
     else if (msg.kind === "status") handlers.onStatus(msg.status);
   };

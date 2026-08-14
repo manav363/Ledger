@@ -82,7 +82,25 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); font
 .workspace { display: grid; grid-template-columns: 220px 1fr 300px; grid-template-rows: 100%; flex: 1; min-height: 0; }
 .sidebar { background: var(--bg-panel); overflow-y: auto; }
 .sidebar--left { border-right: 1px solid var(--border); }
-.sidebar--right { border-left: 1px solid var(--border); }
+/* Right sidebar splits: config (scrolls) on top, run log pinned below. */
+.sidebar--right { border-left: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; }
+.sidebar__scroll { overflow-y: auto; flex: 0 1 auto; }
+
+/* ── Run log ──────────────────────────────────────── */
+.log { border-top: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.log__empty { font-size: 12px; color: var(--text-faint); line-height: 1.5; }
+.log__list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12px; }
+.log__row { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; padding: 3px 6px; border-radius: 4px; border-left: 2px solid var(--border-strong); }
+.log__row--started { border-left-color: var(--run-running); }
+.log__row--retry { border-left-color: var(--run-running); background: #241d10; }
+.log__row--done { border-left-color: var(--run-done); }
+.log__row--failed { border-left-color: var(--run-failed); background: #241416; }
+.log__time { color: var(--text-faint); }
+.log__node { color: var(--text); }
+.log__event { color: var(--text-dim); }
+.log__row--done .log__event { color: var(--run-done); }
+.log__row--failed .log__event { color: var(--run-failed); }
+.log__row--retry .log__event { color: var(--run-running); }
 .canvas { position: relative; min-width: 0; background: var(--bg); }
 
 .panel__title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin: 0 0 12px; font-weight: 600; }

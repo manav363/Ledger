@@ -11,7 +11,8 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import { api, type EdgeCondition, type WorkflowSummary } from "./lib/api";
-import { openRunStream } from "./lib/runStream";
+import { openRunStream, type LogEntry } from "./lib/runStream";
+import { RunLog } from "./components/RunLog";
 import { NODE_SPECS } from "./lib/nodeSpecs";
 import { LedgerNode as LedgerNodeView } from "./components/LedgerNode";
 import { Palette } from "./components/Palette";
@@ -29,6 +30,7 @@ export default function App() {
   const [name, setName] = useState("Untitled workflow");
   const [list, setList] = useState<WorkflowSummary[]>([]);
   const [run, setRun] = useState<{ id: string; status: string } | null>(null);
+  const [log, setLog] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refreshList = useCallback(() => {
@@ -44,12 +46,14 @@ export default function App() {
   useEffect(() => {
     if (!run) return;
     return openRunStream(run.id, {
-      onSnapshot: (states, status) => {
+      onSnapshot: (states, status, events) => {
         setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, status: states[n.id] } })));
         setRun((r) => (r ? { ...r, status } : r));
+        setLog(events);
       },
       onEvent: (nodeId, eventType) => {
         setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, status: eventType } } : n)));
+        setLog((l) => [...l, { node_id: nodeId, event_type: eventType, created_at: new Date().toISOString() }]);
       },
       onStatus: (status) => setRun((r) => (r ? { ...r, status } : r)),
     });
@@ -114,6 +118,7 @@ export default function App() {
       setWorkflowId(wf.id);
       setName(wf.name);
       setRun(null);
+      setLog([]);
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
     } catch (e) {
@@ -127,6 +132,7 @@ export default function App() {
     setWorkflowId(null);
     setName("Untitled workflow");
     setRun(null);
+    setLog([]);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
   };
@@ -136,6 +142,7 @@ export default function App() {
     const id = await save(); // persist current canvas first
     if (!id) return;
     clearStatuses();
+    setLog([]);
     try {
       const { run_id } = await api.startRun(id);
       setRun({ id: run_id, status: "running" });
@@ -201,14 +208,17 @@ export default function App() {
         </main>
 
         <aside className="sidebar sidebar--right">
-          <ConfigPanel
-            key={selectedNodeId ?? selectedEdgeId ?? "none"}
-            node={selectedNode}
-            edge={selectedNode ? null : selectedEdge}
-            onNodeConfig={updateNodeConfig}
-            onEdgeCondition={updateEdgeCondition}
-            onDelete={deleteSelected}
-          />
+          <div className="sidebar__scroll">
+            <ConfigPanel
+              key={selectedNodeId ?? selectedEdgeId ?? "none"}
+              node={selectedNode}
+              edge={selectedNode ? null : selectedEdge}
+              onNodeConfig={updateNodeConfig}
+              onEdgeCondition={updateEdgeCondition}
+              onDelete={deleteSelected}
+            />
+          </div>
+          <RunLog events={log} />
         </aside>
       </div>
     </div>

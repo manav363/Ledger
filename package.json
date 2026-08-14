@@ -4,5 +4,13 @@
   "workspaces": [
     "api",
     "web"
-  ]
+  ],
+  "scripts": {
+    "migrate": "npm run migrate -w api",
+    "server": "npm run server -w api",
+    "worker": "npm run worker -w api",
+    "web": "npm run dev -w web",
+    "demo:crash": "npm run demo:crash -w api",
+    "test": "npm run loadtest:claiming -w api && npm run test:http -w api && npm run test:dag -w api && npm run test:crash -w api && npm run test:live -w api"
+  }
 }
