@@ -10,16 +10,19 @@
     "test:http": "tsx --test src/queue/__tests__/httpExecution.ts",
     "test:dag": "tsx --test src/queue/__tests__/dagExecution.ts",
     "test:crash": "tsx --test src/queue/__tests__/crashRecovery.ts",
+    "test:live": "tsx --test src/http/__tests__/liveStream.ts",
     "demo:crash": "tsx src/queue/crashDemo.ts"
   },
   "dependencies": {
     "express": "^4.22.2",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/express": "^4.17.25",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.10",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

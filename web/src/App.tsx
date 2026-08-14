@@ -11,6 +11,7 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import { api, type EdgeCondition, type WorkflowSummary } from "./lib/api";
+import { openRunStream } from "./lib/runStream";
 import { NODE_SPECS } from "./lib/nodeSpecs";
 import { LedgerNode as LedgerNodeView } from "./components/LedgerNode";
 import { Palette } from "./components/Palette";
@@ -18,7 +19,6 @@ import { ConfigPanel } from "./components/ConfigPanel";
 import { toDefinition, fromDefinition, nextNodeId, type LedgerNode, type LedgerEdge } from "./lib/graph";
 
 const nodeTypes: NodeTypes = { ledger: LedgerNodeView };
-const TERMINAL = new Set(["completed", "failed"]);
 
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState<LedgerNode>([]);
@@ -39,20 +39,21 @@ export default function App() {
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
   const selectedEdge = useMemo(() => edges.find((e) => e.id === selectedEdgeId) ?? null, [edges, selectedEdgeId]);
 
-  // Poll run status and light up nodes while a run is in flight.
+  // Live run stream over WebSocket (Postgres LISTEN/NOTIFY) — opens when a run
+  // starts, closes when the run changes or the component unmounts.
   useEffect(() => {
-    if (!run || TERMINAL.has(run.status)) return;
-    const t = setInterval(async () => {
-      try {
-        const r = await api.getRun(run.id);
-        setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, status: r.node_states[n.id] } })));
-        setRun({ id: r.id, status: r.status });
-      } catch {
-        /* transient */
-      }
-    }, 500);
-    return () => clearInterval(t);
-  }, [run, setNodes]);
+    if (!run) return;
+    return openRunStream(run.id, {
+      onSnapshot: (states, status) => {
+        setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, status: states[n.id] } })));
+        setRun((r) => (r ? { ...r, status } : r));
+      },
+      onEvent: (nodeId, eventType) => {
+        setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, status: eventType } } : n)));
+      },
+      onStatus: (status) => setRun((r) => (r ? { ...r, status } : r)),
+    });
+  }, [run?.id, setNodes]);
 
   const addNode = (type: string) => {
     setNodes((ns) => {

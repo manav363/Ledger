@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": "http://localhost:3001",
+      // ws: true so the /api/runs/:id/stream upgrade is proxied to the API too.
+      "/api": { target: "http://localhost:3001", ws: true },
     },
   },
 });
