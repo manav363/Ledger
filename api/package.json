@@ -6,7 +6,9 @@
     "migrate": "tsx src/db/migrate.ts",
     "loadtest:claiming": "tsx --test src/queue/__loadtest__/concurrentClaim.ts",
     "test:http": "tsx --test src/queue/__tests__/httpExecution.ts",
-    "test:dag": "tsx --test src/queue/__tests__/dagExecution.ts"
+    "test:dag": "tsx --test src/queue/__tests__/dagExecution.ts",
+    "test:crash": "tsx --test src/queue/__tests__/crashRecovery.ts",
+    "demo:crash": "tsx src/queue/crashDemo.ts"
   },
   "dependencies": {
     "pg": "^8.13.1"
