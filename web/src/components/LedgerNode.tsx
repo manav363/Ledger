@@ -4,8 +4,15 @@ import type { LedgerNode as LedgerNodeType } from "../lib/graph";
 
 const STATUS_CLASS: Record<string, string> = {
   step_started: "running",
-  retry: "running",
+  retry: "retry",
   step_completed: "done",
+  step_failed: "failed",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  step_started: "running",
+  retry: "retrying",
+  step_completed: "completed",
   step_failed: "failed",
 };
 
@@ -20,6 +27,7 @@ export function LedgerNode({ id, data, selected }: NodeProps<LedgerNodeType>) {
   const spec = specFor(data.nodeType);
   const summary = summarize(data.nodeType, data.config);
   const statusClass = data.status ? STATUS_CLASS[data.status] ?? "" : "";
+  const statusLabel = data.status ? STATUS_LABEL[data.status] : undefined;
 
   return (
     <div
@@ -27,9 +35,13 @@ export function LedgerNode({ id, data, selected }: NodeProps<LedgerNodeType>) {
       style={{ ["--accent" as string]: `var(${spec?.accent ?? "--node-noop"})` }}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="node__label">{spec?.label ?? data.nodeType}</div>
+      <div className="node__head">
+        <span className="node__label">{spec?.label ?? data.nodeType}</span>
+        <span className="node__dot" />
+      </div>
       <div className="node__id">{id}</div>
       {summary && <div className="node__summary">{summary}</div>}
+      {statusLabel && <div className="node__status">{statusLabel}</div>}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

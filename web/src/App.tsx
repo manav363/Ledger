@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ReactFlow,
-  Background,
   Controls,
-  MiniMap,
   addEdge,
   useNodesState,
   useEdgesState,
@@ -13,13 +11,13 @@ import {
 import { api, type EdgeCondition, type WorkflowSummary } from "./lib/api";
 import { openRunStream, type LogEntry } from "./lib/runStream";
 import { RunLog } from "./components/RunLog";
-import { NODE_SPECS } from "./lib/nodeSpecs";
 import { LedgerNode as LedgerNodeView } from "./components/LedgerNode";
 import { Palette } from "./components/Palette";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { toDefinition, fromDefinition, nextNodeId, type LedgerNode, type LedgerEdge } from "./lib/graph";
 
 const nodeTypes: NodeTypes = { ledger: LedgerNodeView };
+const RUN_PILL: Record<string, string> = { running: "running", completed: "completed", failed: "failed" };
 
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState<LedgerNode>([]);
@@ -32,11 +30,27 @@ export default function App() {
   const [run, setRun] = useState<{ id: string; status: string } | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
 
   const refreshList = useCallback(() => {
     api.listWorkflows().then(setList).catch((e) => setError(e.message));
   }, []);
   useEffect(refreshList, [refreshList]);
+
+  // Reflect real API reachability in the connection indicator.
+  useEffect(() => {
+    let alive = true;
+    const ping = () =>
+      fetch("/api/health")
+        .then((r) => alive && setConnected(r.ok))
+        .catch(() => alive && setConnected(false));
+    ping();
+    const t = setInterval(ping, 15000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
 
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
   const selectedEdge = useMemo(() => edges.find((e) => e.id === selectedEdgeId) ?? null, [edges, selectedEdgeId]);
@@ -151,22 +165,26 @@ export default function App() {
     }
   };
 
+  const isRunning = run?.status === "running";
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="brand__mark">▚</span>
-          <span className="brand__name">Ledger</span>
-          <span className="brand__tag">workflow builder</span>
+          <span className="brand__name">LEDGER</span>
+          <span className="brand__tag">workflow engine</span>
         </div>
-        <input className="topbar__name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Workflow name" />
-        <div className="topbar__actions">
-          <select
-            className="btn"
-            value=""
-            onChange={(e) => e.target.value && open(e.target.value)}
-            aria-label="Open workflow"
-          >
+        <div className="conn">
+          <span className={`conn__dot ${connected ? "" : "conn__dot--off"}`} />
+          <span className="conn__label">{connected ? "api · web — connected" : "api — offline"}</span>
+        </div>
+      </header>
+
+      <div className="subbar">
+        <input className="subbar__name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Workflow name" />
+        <span className="subbar__count">{nodes.length} nodes · {edges.length} edges</span>
+        <div className="subbar__actions">
+          <select className="btn" value="" onChange={(e) => e.target.value && open(e.target.value)} aria-label="Open workflow">
             <option value="">Open…</option>
             {list.map((w) => (
               <option key={w.id} value={w.id}>{w.name}</option>
@@ -174,19 +192,27 @@ export default function App() {
           </select>
           <button className="btn" onClick={newWorkflow}>New</button>
           <button className="btn" onClick={save}>Save</button>
-          <button className="btn btn--primary" onClick={runWorkflow}>▶ Run</button>
-          {run && <span className={`badge badge--${run.status}`}>{run.status}</span>}
+          <button className="btn btn--run" onClick={runWorkflow}>
+            <span className="btn__dot" />
+            Run
+          </button>
+          {run && (
+            <span className={`pill pill--${RUN_PILL[run.status] ?? "running"}`}>
+              <span className="pill__dot" />
+              {run.status}
+            </span>
+          )}
         </div>
-      </header>
+      </div>
 
       {error && <div className="error-bar" onClick={() => setError(null)}>⚠ {error} <span className="error-bar__dismiss">dismiss</span></div>}
 
       <div className="workspace">
-        <aside className="sidebar sidebar--left">
+        <aside className="rail">
           <Palette onAdd={addNode} />
         </aside>
 
-        <main className="canvas">
+        <main className={`canvas ${isRunning ? "canvas--running" : ""}`}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -201,25 +227,23 @@ export default function App() {
             fitView
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={18} color="var(--grid)" />
-            <Controls />
-            <MiniMap pannable zoomable className="minimap" />
+            <Controls showInteractive={false} />
           </ReactFlow>
-        </main>
 
-        <aside className="sidebar sidebar--right">
-          <div className="sidebar__scroll">
-            <ConfigPanel
-              key={selectedNodeId ?? selectedEdgeId ?? "none"}
-              node={selectedNode}
-              edge={selectedNode ? null : selectedEdge}
-              onNodeConfig={updateNodeConfig}
-              onEdgeCondition={updateEdgeCondition}
-              onDelete={deleteSelected}
-            />
-          </div>
-          <RunLog events={log} />
-        </aside>
+          <aside className="panel">
+            <div className="panel__scroll">
+              <ConfigPanel
+                key={selectedNodeId ?? selectedEdgeId ?? "none"}
+                node={selectedNode}
+                edge={selectedNode ? null : selectedEdge}
+                onNodeConfig={updateNodeConfig}
+                onEdgeCondition={updateEdgeCondition}
+                onDelete={deleteSelected}
+              />
+            </div>
+            <RunLog events={log} />
+          </aside>
+        </main>
       </div>
     </div>
   );
