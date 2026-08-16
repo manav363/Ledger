@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Controls,
@@ -7,10 +7,13 @@ import {
   useEdgesState,
   type Connection,
   type NodeTypes,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { api, type EdgeCondition, type WorkflowSummary } from "./lib/api";
 import { openRunStream, type LogEntry } from "./lib/runStream";
+import { timeAgo } from "./lib/time";
 import { RunLog } from "./components/RunLog";
+import { WorkflowList } from "./components/WorkflowList";
 import { LedgerNode as LedgerNodeView } from "./components/LedgerNode";
 import { Palette } from "./components/Palette";
 import { ConfigPanel } from "./components/ConfigPanel";
@@ -18,6 +21,9 @@ import { toDefinition, fromDefinition, nextNodeId, type LedgerNode, type LedgerE
 
 const nodeTypes: NodeTypes = { ledger: LedgerNodeView };
 const RUN_PILL: Record<string, string> = { running: "running", completed: "completed", failed: "failed" };
+
+type Screen = "list" | "canvas" | "run";
+interface Run { id: string; status: string; startedAt?: string }
 
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState<LedgerNode>([]);
@@ -27,36 +33,32 @@ export default function App() {
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [name, setName] = useState("Untitled workflow");
   const [list, setList] = useState<WorkflowSummary[]>([]);
-  const [run, setRun] = useState<{ id: string; status: string } | null>(null);
+  const [run, setRun] = useState<Run | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [screen, setScreen] = useState<Screen>("list");
+  const rf = useRef<ReactFlowInstance<LedgerNode, LedgerEdge> | null>(null);
 
   const refreshList = useCallback(() => {
     api.listWorkflows().then(setList).catch((e) => setError(e.message));
   }, []);
   useEffect(refreshList, [refreshList]);
 
-  // Reflect real API reachability in the connection indicator.
   useEffect(() => {
     let alive = true;
-    const ping = () =>
-      fetch("/api/health")
-        .then((r) => alive && setConnected(r.ok))
-        .catch(() => alive && setConnected(false));
+    const ping = () => fetch("/api/health").then((r) => alive && setConnected(r.ok)).catch(() => alive && setConnected(false));
     ping();
     const t = setInterval(ping, 15000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
+    return () => { alive = false; clearInterval(t); };
   }, []);
 
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
   const selectedEdge = useMemo(() => edges.find((e) => e.id === selectedEdgeId) ?? null, [edges, selectedEdgeId]);
 
-  // Live run stream over WebSocket (Postgres LISTEN/NOTIFY) — opens when a run
-  // starts, closes when the run changes or the component unmounts.
+  // Recenter after the graph changes (nodes measure a tick after they mount).
+  const fitSoon = () => setTimeout(() => rf.current?.fitView({ duration: 200, padding: 0.2 }), 80);
+
   useEffect(() => {
     if (!run) return;
     return openRunStream(run.id, {
@@ -76,18 +78,11 @@ export default function App() {
   const addNode = (type: string) => {
     setNodes((ns) => {
       const id = nextNodeId(ns, type);
-      const node: LedgerNode = {
-        id,
-        type: "ledger",
-        position: { x: 200 + ns.length * 40, y: 120 + ns.length * 60 },
-        data: { nodeType: type, config: {} },
-      };
-      return [...ns, node];
+      return [...ns, { id, type: "ledger", position: { x: 200 + ns.length * 40, y: 120 + ns.length * 60 }, data: { nodeType: type, config: {} } }];
     });
   };
 
   const onConnect = useCallback((c: Connection) => setEdges((eds) => addEdge({ ...c, data: {} }, eds)), [setEdges]);
-
   const clearStatuses = () => setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, status: undefined } })));
 
   const updateNodeConfig = (config: Record<string, unknown>) =>
@@ -135,6 +130,8 @@ export default function App() {
       setLog([]);
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
+      setScreen("canvas");
+      fitSoon();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -149,23 +146,30 @@ export default function App() {
     setLog([]);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
+    setScreen("canvas");
   };
 
   const runWorkflow = async () => {
     if (nodes.length === 0) return setError("Add at least one node before running.");
-    const id = await save(); // persist current canvas first
+    const id = await save();
     if (!id) return;
     clearStatuses();
     setLog([]);
     try {
       const { run_id } = await api.startRun(id);
-      setRun({ id: run_id, status: "running" });
+      setRun({ id: run_id, status: "running", startedAt: new Date().toISOString() });
+      setScreen("run");
+      fitSoon();
     } catch (e) {
       setError((e as Error).message);
     }
   };
 
+  const goList = () => { refreshList(); setScreen("list"); };
+  const goCanvas = () => { setScreen("canvas"); fitSoon(); };
+
   const isRunning = run?.status === "running";
+  const isCanvas = screen === "canvas";
 
   return (
     <div className="app">
@@ -174,77 +178,120 @@ export default function App() {
           <span className="brand__name">LEDGER</span>
           <span className="brand__tag">workflow engine</span>
         </div>
+        <nav className="nav">
+          <NavItem num="01" label="WORKFLOWS" active={screen === "list"} onClick={goList} />
+          <NavItem num="02" label="CANVAS" active={screen === "canvas"} disabled={nodes.length === 0 && !workflowId} onClick={goCanvas} />
+          <NavItem num="03" label="RUN" active={screen === "run"} disabled={!run} onClick={() => run && setScreen("run")} />
+        </nav>
         <div className="conn">
           <span className={`conn__dot ${connected ? "" : "conn__dot--off"}`} />
           <span className="conn__label">{connected ? "api · web — connected" : "api — offline"}</span>
         </div>
       </header>
 
-      <div className="subbar">
-        <input className="subbar__name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Workflow name" />
-        <span className="subbar__count">{nodes.length} nodes · {edges.length} edges</span>
-        <div className="subbar__actions">
-          <select className="btn" value="" onChange={(e) => e.target.value && open(e.target.value)} aria-label="Open workflow">
-            <option value="">Open…</option>
-            {list.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
-          <button className="btn" onClick={newWorkflow}>New</button>
-          <button className="btn" onClick={save}>Save</button>
-          <button className="btn btn--run" onClick={runWorkflow}>
-            <span className="btn__dot" />
-            Run
-          </button>
-          {run && (
-            <span className={`pill pill--${RUN_PILL[run.status] ?? "running"}`}>
-              <span className="pill__dot" />
-              {run.status}
-            </span>
-          )}
-        </div>
-      </div>
-
       {error && <div className="error-bar" onClick={() => setError(null)}>⚠ {error} <span className="error-bar__dismiss">dismiss</span></div>}
 
-      <div className="workspace">
-        <aside className="rail">
-          <Palette onAdd={addNode} />
-        </aside>
+      {/* ReactFlow is always mounted (warm) in an explicitly-sized container, so
+          it initialises before any workflow is loaded — a fresh @xyflow mount can
+          leave nodes unmeasured (edges then never render). The list is an overlay. */}
+      <div className="body">
+        <div className="subbar">
+          {screen === "canvas" && (
+            <>
+              <a className="subbar__back" onClick={goList}>← Workflows</a>
+              <span className="subbar__div" />
+              <input className="subbar__name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Workflow name" />
+              <span className="subbar__count">{nodes.length} nodes · {edges.length} edges</span>
+              <div className="subbar__actions">
+                <button className="btn" onClick={save}>Save</button>
+                <button className="btn btn--run" onClick={runWorkflow}><span className="btn__dot" />Run</button>
+              </div>
+            </>
+          )}
+          {screen === "run" && (
+            <>
+              <a className="subbar__back" onClick={goCanvas}>← Canvas</a>
+              <span className="subbar__div" />
+              <span className="subbar__wfname">{name}</span>
+              {run && <span className="subbar__count">{run.id.slice(0, 8)}</span>}
+              {run && <span className={`pill pill--${RUN_PILL[run.status] ?? "running"}`}><span className="pill__dot" />{run.status}</span>}
+              {run && <StartedAgo startedAt={run.startedAt} running={isRunning} />}
+            </>
+          )}
+        </div>
 
-        <main className={`canvas ${isRunning ? "canvas--running" : ""}`}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            nodeTypes={nodeTypes}
-            onSelectionChange={({ nodes: sn, edges: se }) => {
-              setSelectedNodeId(sn[0]?.id ?? null);
-              setSelectedEdgeId(se[0]?.id ?? null);
-            }}
-            fitView
-            proOptions={{ hideAttribution: true }}
-          >
-            <Controls showInteractive={false} />
-          </ReactFlow>
+        <div className="workspace">
+          {isCanvas && (
+            <aside className="rail">
+              <Palette onAdd={addNode} />
+            </aside>
+          )}
+          <main className={`canvas ${isRunning ? "canvas--running" : ""}`}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              nodeTypes={nodeTypes}
+              nodesDraggable={isCanvas}
+              nodesConnectable={isCanvas}
+              elementsSelectable={isCanvas}
+              onSelectionChange={({ nodes: sn, edges: se }) => {
+                setSelectedNodeId(sn[0]?.id ?? null);
+                setSelectedEdgeId(se[0]?.id ?? null);
+              }}
+              onInit={(inst) => (rf.current = inst)}
+              fitView
+              proOptions={{ hideAttribution: true }}
+            >
+              <Controls showInteractive={false} />
+            </ReactFlow>
 
-          <aside className="panel">
-            <div className="panel__scroll">
-              <ConfigPanel
-                key={selectedNodeId ?? selectedEdgeId ?? "none"}
-                node={selectedNode}
-                edge={selectedNode ? null : selectedEdge}
-                onNodeConfig={updateNodeConfig}
-                onEdgeCondition={updateEdgeCondition}
-                onDelete={deleteSelected}
-              />
-            </div>
-            <RunLog events={log} />
-          </aside>
-        </main>
+            <aside className="panel">
+              {screen === "run" ? (
+                <RunLog events={log} />
+              ) : (
+                <div className="panel__scroll">
+                  <ConfigPanel
+                    key={selectedNodeId ?? selectedEdgeId ?? "none"}
+                    node={selectedNode}
+                    edge={selectedNode ? null : selectedEdge}
+                    onNodeConfig={updateNodeConfig}
+                    onEdgeCondition={updateEdgeCondition}
+                    onDelete={deleteSelected}
+                  />
+                </div>
+              )}
+            </aside>
+          </main>
+        </div>
+
+        {screen === "list" && (
+          <div className="list-overlay">
+            <WorkflowList workflows={list} onOpen={open} onNew={newWorkflow} />
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+function NavItem({ num, label, active, disabled, onClick }: { num: string; label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button className={`nav__item ${active ? "nav__item--active" : ""}`} disabled={disabled} onClick={onClick} aria-current={active ? "page" : undefined}>
+      <span className="nav__num">{num}</span>
+      <span className="nav__label">{label}</span>
+    </button>
+  );
+}
+
+function StartedAgo({ startedAt, running }: { startedAt?: string; running: boolean }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  return <span className="subbar__started">started {timeAgo(startedAt ?? null)}</span>;
 }

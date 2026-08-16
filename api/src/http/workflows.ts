@@ -5,10 +5,21 @@ import { wrap } from "./wrap.js";
 
 export const workflows = Router();
 
-// List (newest first) — for the builder's "open" menu.
+// List (newest first) — powers the "open" menu and the Workflows screen, so it
+// carries node count and the latest run's status/time per workflow.
 workflows.get("/", wrap(async (_req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, name, created_at FROM workflows ORDER BY created_at DESC`,
+    `SELECT w.id, w.name, w.created_at,
+            COALESCE(jsonb_array_length(w.definition->'nodes'), 0) AS node_count,
+            lr.status AS last_status, lr.started_at AS last_run_at
+     FROM workflows w
+     LEFT JOIN LATERAL (
+       SELECT status, started_at FROM runs r
+       WHERE r.workflow_id = w.id
+       ORDER BY r.started_at DESC NULLS LAST, r.id DESC
+       LIMIT 1
+     ) lr ON true
+     ORDER BY w.created_at DESC`,
   );
   res.json(rows);
 }));

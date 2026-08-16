@@ -30,6 +30,9 @@ export interface WorkflowSummary {
   id: string;
   name: string;
   created_at: string;
+  node_count: number;
+  last_status: string | null;
+  last_run_at: string | null;
 }
 export interface RunStatus {
   id: string;

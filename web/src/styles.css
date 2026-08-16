@@ -86,8 +86,13 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-ui); f
 .subbar__name {
   background: transparent; border: 1px solid transparent; border-radius: 3px;
   color: var(--text-bright); font-family: var(--font-brand); font-size: 13px; font-weight: 600;
-  padding: 5px 8px; width: 260px; margin-left: -8px;
+  padding: 5px 8px; width: 240px;
 }
+.subbar__back { font-size: 11.5px; color: var(--text-mid); text-decoration: none; cursor: pointer; }
+.subbar__back:hover { color: var(--accent); }
+.subbar__div { width: 1px; height: 16px; background: var(--border); }
+.subbar__wfname { font-family: var(--font-brand); font-size: 13px; font-weight: 600; color: var(--text-bright); }
+.subbar__started { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-left: auto; }
 .subbar__name:hover { border-color: var(--border); }
 .subbar__name:focus { outline: none; border-color: var(--border-strong); background: var(--input-bg); }
 .subbar__count { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
@@ -127,8 +132,15 @@ select.btn option { background: var(--surface); color: var(--text); }
 }
 .error-bar__dismiss { margin-left: auto; color: var(--text-faint); font-size: 11px; font-family: var(--font-mono); }
 
+/* ── Body: subbar + workspace; the list overlays this ── */
+.body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.list-overlay { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column; }
+
 /* ── Workspace ────────────────────────────────────── */
-.workspace { display: flex; flex: 1; min-height: 0; }
+/* Explicit height (topbar 52 + subbar 46) rather than flex:1 — a flex-derived
+   height can read 0 at the instant ReactFlow mounts, which permanently wedges
+   @xyflow node measurement (edges then never render). ReactFlow stays mounted. */
+.workspace { display: flex; height: calc(100vh - 98px); }
 
 /* left rail (palette) */
 .rail { width: 216px; flex: 0 0 216px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; }
@@ -172,7 +184,7 @@ select.btn option { background: var(--surface); color: var(--text); }
 
 /* ── Custom node ──────────────────────────────────── */
 .node {
-  min-width: 190px; background: var(--surface-2);
+  width: 190px; background: var(--surface-2);
   border: 1px solid var(--border-3); border-left: 3px solid var(--accent);
   border-radius: 2px; padding: 10px 12px; font-family: var(--font-ui);
 }
@@ -258,3 +270,37 @@ select.btn option { background: var(--surface); color: var(--text); }
 .log__row--retry .log__event { color: var(--run-retry); }
 .log__row--done .log__event { color: var(--run-completed); }
 .log__row--failed .log__event { color: var(--run-failed); }
+
+/* ── Top-bar nav ──────────────────────────────────── */
+.nav { display: flex; gap: 2px; }
+.nav__item {
+  display: flex; align-items: center; gap: 7px; height: 52px; padding: 0 14px;
+  background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.nav__num { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+.nav__label { font-family: var(--font-brand); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; color: var(--text-mid); }
+.nav__item:hover:not(:disabled) .nav__label { color: var(--text-bright); }
+.nav__item--active { border-bottom-color: var(--accent); }
+.nav__item--active .nav__label { color: var(--text-bright); }
+.nav__item:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Workflows list screen ────────────────────────── */
+.wl { flex: 1; overflow-y: auto; padding: 32px 40px; max-width: 1180px; width: 100%; margin: 0 auto; }
+.wl__head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+.wl__title { font-family: var(--font-brand); font-size: 20px; font-weight: 700; color: var(--text-brightest); letter-spacing: -0.2px; }
+.wl__sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+.wl__table { border: 1px solid var(--border); }
+.wl__row {
+  display: grid; grid-template-columns: 2fr 100px 80px 150px 120px; align-items: center;
+  padding: 13px 18px; border-bottom: 1px solid var(--border-2); cursor: pointer;
+}
+.wl__row:last-child { border-bottom: none; }
+.wl__row:not(.wl__row--head):hover { background: #211c18; }
+.wl__row--head { background: var(--surface); border-bottom: 1px solid var(--border); cursor: default; }
+.wl__row--head span { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); letter-spacing: 1px; text-transform: uppercase; }
+.wl__name { font-size: 13.5px; color: var(--text-bright); font-weight: 500; }
+.wl__mono { font-family: var(--font-mono); font-size: 11.5px; }
+.wl__dim { color: var(--text-faint); }
+.wl__status { display: flex; align-items: center; gap: 7px; }
+.wl__dot { width: 6px; height: 6px; flex: 0 0 auto; }
+.wl__empty { padding: 22px 18px; color: var(--text-faint); font-size: 12.5px; font-family: var(--font-ui); }
