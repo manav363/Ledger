@@ -11,7 +11,8 @@
     "test:dag": "tsx --test src/queue/__tests__/dagExecution.ts",
     "test:crash": "tsx --test src/queue/__tests__/crashRecovery.ts",
     "test:live": "tsx --test src/http/__tests__/liveStream.ts",
-    "demo:crash": "tsx src/queue/crashDemo.ts"
+    "demo:crash": "tsx src/queue/crashDemo.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "express": "^4.22.2",

@@ -13,6 +13,8 @@ A workflow automation engine built on a single assumption:<br/>
 [![PostgreSQL](https://img.shields.io/badge/postgresql-v14+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-v5.7-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/react-v18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![CI](https://img.shields.io/github/actions/workflow/status/manav363/Ledger/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/manav363/Ledger/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -22,9 +24,9 @@ A workflow automation engine built on a single assumption:<br/>
 
 Ledger is a visual workflow tool — you drag-connect nodes into a DAG (trigger → HTTP call → condition → delay), hit Run, and watch nodes light up in real time. Think n8n or Zapier, but the entire execution layer is **event-sourced** and **crash-safe**.
 
-Every step transition is an immutable row in an append-only log. Current state is *derived*, never stored. Workers coordinate through `SELECT … FOR UPDATE SKIP LOCKED` — no Redis, no external queue, no in-memory locks. Just PostgreSQL.
+Every step transition is an immutable row in an append-only log, and that log, not a mutable flag, is what decides whether a step finished. Workers coordinate through `SELECT … FOR UPDATE SKIP LOCKED` — no Redis, no external queue, no in-memory locks. Just PostgreSQL.
 
-**The result:** `kill -9` a worker mid-step, start a new one, and it resumes from the exact point of failure. Completed steps never re-run. The stranded step re-runs exactly once.
+**The result:** `kill -9` a worker mid-step, start a new one, and the run resumes from the point of failure. Completed steps never re-run; the interrupted step runs again (at-least-once, see [Known limitations](#known-limitations)).
 
 ---
 
@@ -34,8 +36,8 @@ Most workflow engines treat crashes as edge cases. Ledger treats them as the def
 
 | Problem | How Ledger solves it |
 |---------|---------------------|
-| **State drift** — a "status" column can silently disagree with what actually happened | No status column. State is *projected* from an append-only event log (`run_events`). What the log says happened, happened. |
-| **Double-claiming** — two workers grab the same job from the queue | `SELECT … FOR UPDATE SKIP LOCKED` — a row another worker is locking becomes invisible. Zero application-level locking. Proven: 5 processes drain 500 jobs with **0 double-claims**. |
+| **State drift** — a mutable "status" flag can silently disagree with what actually happened | Step outputs and completion are recorded in an append-only event log (`run_events`) that is never updated. `jobs.status` is queue bookkeeping only, and before recovery requeues a stuck job it checks the log for a `step_completed` event, so a finished step is never resurrected. `runs.status` is recomputed from the jobs on every completion or failure. |
+| **Double-claiming** — two workers grab the same job from the queue | `SELECT … FOR UPDATE SKIP LOCKED` — a row another worker is locking becomes invisible. Zero application-level locking in the claim path. Proven: 5 processes drain 500 jobs with **0 double-claims**. |
 | **Crash mid-step** — a worker dies between "started" and "completed" | A periodic sweep requeues jobs `claimed` past a timeout *only if* no `step_completed` event exists. The in-flight step re-runs; finished steps never do. Proven with automated `kill -9`. |
 | **Stale UI** — the browser doesn't know what the database knows | Postgres `LISTEN/NOTIFY` triggers fire on every event insert and status change. A dedicated (non-pooled) connection relays them over WebSocket. No polling. |
 
@@ -94,6 +96,8 @@ flowchart TB
 
 Everything the API and workers agree on lives in Postgres. Workers are stateless Node processes — run one or twenty. They coordinate only through the database.
 
+> **Start here:** [`docs/how-it-works.md`](docs/how-it-works.md) walks through one run end to end, and [`docs/design-decisions.md`](docs/design-decisions.md) explains the trade-offs.
+>
 > **Deep dive:** see [`docs/system_architecture.md`](docs/system_architecture.md) for full endpoint mappings, sequence diagrams, DB schema ERD, and internal module documentation.
 
 ---
@@ -105,7 +109,7 @@ Four tables. That's the entire coordination layer.
 | Table | What it does |
 |-------|-------------|
 | `workflows` | The DAG definition — `{ nodes, edges }` as JSONB |
-| `runs` | One row per execution. `status` is *derived* from the job projection, never manually set |
+| `runs` | One row per execution. `status` is a cached value recomputed from the job counts on every completion or failure (`refreshRunStatus`) |
 | `run_events` | **Append-only event log.** `step_started` / `step_completed` / `step_failed` / `retry`. This is the source of truth |
 | `jobs` | The queue workers poll — `queued` → `claimed` → `done` or `failed`, with `attempts` and `available_at` for exponential backoff |
 
@@ -198,6 +202,8 @@ npm test
 | `test:crash` | `kill -9` mid-run — completed steps untouched, killed step reruns exactly once |
 | `test:live` | WebSocket client receives snapshot → per-node events → terminal status in order |
 
+GitHub Actions runs the typecheck, the web build, the migrations and this whole suite against a Postgres 16 service on every push and pull request.
+
 ---
 
 ## API
@@ -245,10 +251,14 @@ api/
 db/migrations/            001 schema · 002 unique index · 003 NOTIFY triggers
 web/
   src/App.tsx             main app — canvas + toolbar + panels
-  src/components/         LedgerNode, Palette, ConfigPanel, RunLog
+  src/components/         LedgerNode, Palette, ConfigPanel, RunLog, WorkflowList
   src/lib/                API client, WS stream, graph ↔ definition converters
 docs/
+  how-it-works.md         guided tour of one run, file by file
+  design-decisions.md     the trade-offs behind Postgres-as-queue, SKIP LOCKED, the event log
   system_architecture.md  full architecture deep-dive
+  planning/               original project brief and vision notes
+.github/workflows/ci.yml  typecheck + build + migrate + tests on Postgres 16
 ```
 
 ---
@@ -271,7 +281,14 @@ No Redis. No RabbitMQ. No external queue. The whole point is proving durable exe
 
 - **No dead-path elimination.** A join node after a conditional branch where one arm is skipped will never fire — the skipped parent never completes. Fixing this requires propagating "skipped" tokens.
 - **HTTP node is at-least-once.** A crash between sending a request and logging `step_completed` can cause a duplicate POST. An idempotency-key option is the planned fix.
+- **Crash recovery is timeout-based.** A job still `claimed` after `WORKER_STUCK_TIMEOUT_MS` (default 2 minutes) with no `step_completed` event is requeued. A worker that is merely slow can have its job run twice, so set the timeout above your slowest node.
 - **No authentication.** All endpoints are open.
+
+---
+
+## How this was built
+
+Ledger was built with AI coding assistance (Claude Code). The reasoning behind the design is written down in [`docs/design-decisions.md`](docs/design-decisions.md) and a guided tour of one run is in [`docs/how-it-works.md`](docs/how-it-works.md), so the choices can be reviewed on their merits. The behaviour claimed in this README is covered by the test suite above, which CI runs against a real Postgres.
 
 ---
 
