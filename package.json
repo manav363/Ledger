@@ -11,6 +11,8 @@
     "worker": "npm run worker -w api",
     "web": "npm run dev -w web",
     "demo:crash": "npm run demo:crash -w api",
-    "test": "npm run loadtest:claiming -w api && npm run test:http -w api && npm run test:dag -w api && npm run test:crash -w api && npm run test:live -w api"
+    "test": "npm run loadtest:claiming -w api && npm run test:http -w api && npm run test:dag -w api && npm run test:crash -w api && npm run test:live -w api",
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web",
+    "build": "npm run build -w web"
   }
 }
